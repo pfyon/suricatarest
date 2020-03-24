@@ -13,9 +13,16 @@ application = Flask(__name__)
 
 working_directory = tempfile.TemporaryDirectory(dir="/dev/shm/")
 logging_directory = tempfile.TemporaryDirectory(dir=working_directory.name)
-unix_sock_path = os.path.join(working_directory.name, "suricata.sock")
 
-suricata_process = subprocess.Popen(['suricata', '-c', './config/suricata.yaml', '--unix-socket={}'.format(unix_sock_path)])
+unix_sock_path = os.path.join(working_directory.name, "suricata.sock")
+read_sock_path = os.path.join(logging_directory.name, "eve.sock")
+
+suricata_process = subprocess.Popen(['suricata', '-c', './config/suricata.yaml', '--unix-socket={}'.format(unix_sock_path)], stdout=subprocess.DEVNULL)
+
+#Create the socket that we'll read from and connect to it
+read_sock = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
+read_sock.bind(read_sock_path)
+read_sock.settimeout(0.5)
 
 #Wait for the suricata process to start up
 suricata_sc = None
@@ -32,24 +39,27 @@ while suricata_sc is None:
 
 @application.route('/suricata', methods=['POST'])
 def handle_request():
+	messages = []
 	with tempfile.NamedTemporaryFile(dir=working_directory.name, suffix='.pcap') as f:
 		f.write(request.get_data())
 		#TODO: logging
 
-		command, args = suricata_sc.parse_command('pcap-file {} {}'.format(f.name, logging_directory.name))
-		suricata_sc.send_command(command, args)
-
-		command, args = suricata_sc.parse_command('pcap-file-number')
-		ret = suricata_sc.send_command(command, args)
+		pcap_file_args = {'output-dir': logging_directory.name, 'filename': f.name}
+		suricata_sc.send_command('pcap-file', pcap_file_args)
 
 		#Poll the socket until it's done processing packets
+		ret = suricata_sc.send_command('pcap-file-number')
 		while ret['message'] > 0:
-			ret = suricata_sc.send_command(command, args)
+			ret = suricata_sc.send_command('pcap-file-number')
 			time.sleep(0.1)
 
-		#TODO: read the eve.json and send it back
+		try:
+			while True:
+				messages.append(json.loads(read_sock.recv(65536).decode("utf-8")))
+		except socket.timeout:
+			pass
 
-	return str(ret)
+	return json.dumps(messages)
 
 if __name__ == '__main__':
 	application.run()
