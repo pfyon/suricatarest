@@ -50,8 +50,8 @@ def handle_request():
 		#Poll the socket until it's done processing packets
 		ret = suricata_sc.send_command('pcap-file-number')
 		while ret['message'] > 0:
-			ret = suricata_sc.send_command('pcap-file-number')
 			time.sleep(0.1)
+			ret = suricata_sc.send_command('pcap-file-number')
 
 		try:
 			while True:
