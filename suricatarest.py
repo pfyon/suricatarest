@@ -14,17 +14,23 @@ def send(sock, msg):
 	ready = select.select([sock], [], [], 600)
 
 	if ready[0]:
-		data = ""
-		ret = None
-		while True:
-			data += sock.recv(1024).decode('iso-8859-1')
-			if data.endswith('\n'):
-				ret = json.loads(data)
-				break
-
-		return ret
+		return receivemessage(sock)
 	else:
 		raise Exception("Could not get message from server")
+
+def receivemessage(sock):
+	data = ""
+	ret = None
+	while True:
+		d = sock.recv(65536).decode('iso-8859-1')
+		print("Received {}".format(d))
+		data += d
+		#data += sock.recv(1024).decode('iso-8859-1')
+		if data.endswith('\n'):
+			ret = json.loads(data)
+			break
+
+	return ret
 
 def send_command(sock, command, args=None):
 	message = {}
@@ -48,7 +54,7 @@ suricata_process = subprocess.Popen(['suricata', '-c', './config/suricata.yaml',
 #Create the socket that we'll read from and connect to it
 read_sock = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
 read_sock.bind(read_sock_path)
-read_sock.settimeout(0.5)
+read_sock.settimeout(10)
 
 #Wait for the suricata process to start up
 suricata_sock = None
@@ -86,8 +92,15 @@ def handle_request():
 
 		try:
 			while True:
-				messages.append(json.loads(read_sock.recv(65536).decode("utf-8")))
+				msg = receivemessage(read_sock)
+				messages.append(msg)
+
+				if 'event_type' in msg and msg['event_type'] == 'stats':
+					#The "stats" message seems to be the last one
+					# (which makes sense as the information contained is only available after the pcap is done being processed)
+					break
 		except socket.timeout:
+			#Never even received a stats message
 			pass
 
 	return json.dumps(messages)
