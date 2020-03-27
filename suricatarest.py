@@ -1,13 +1,39 @@
 #!/usr/bin/env python3
 import json
 import os
+import select
 import socket
 import subprocess
 import stat
 import tempfile
 import time
 from flask import Flask, request
-from suricata.sc import SuricataSC #TODO: I had to copy /usr/lib/python3.6/site-packages/suricata/ to the virtualenv to get this to work. Don't know how to install the python package to the virtualenv
+
+def send(sock, msg):
+	sock.send(bytes(json.dumps(msg) + '\n', 'iso-8859-1'))
+	ready = select.select([sock], [], [], 600)
+
+	if ready[0]:
+		data = ""
+		ret = None
+		while True:
+			data += sock.recv(1024).decode('iso-8859-1')
+			if data.endswith('\n'):
+				ret = json.loads(data)
+				break
+
+		return ret
+	else:
+		raise Exception("Could not get message from server")
+
+def send_command(sock, command, args=None):
+	message = {}
+	message['command'] = command
+
+	if args is not None:
+		message['arguments'] = args
+
+	return send(sock, message)
 
 application = Flask(__name__)
 
@@ -25,17 +51,22 @@ read_sock.bind(read_sock_path)
 read_sock.settimeout(0.5)
 
 #Wait for the suricata process to start up
-suricata_sc = None
-while suricata_sc is None:
+suricata_sock = None
+while suricata_sock is None:
 	try:
 		if stat.S_ISSOCK(os.stat(unix_sock_path).st_mode):
-			suricata_sc = SuricataSC(unix_sock_path)
-			suricata_sc.connect()
+			suricata_sock = socket.socket(socket.AF_UNIX)
+			suricata_sock.connect(unix_sock_path)
+			suricata_sock.settimeout(10)
+
+			#Apparently we have to send a version when we connect or suricata won't accept commands
+			send(suricata_sock, {"version": '0.2'})
 		else:
 			raise FileNotFoundError()
 	except FileNotFoundError:
 		print("Waiting for {} to exist".format(unix_sock_path))
 		time.sleep(1.0)
+
 
 @application.route('/suricata', methods=['POST'])
 def handle_request():
@@ -45,13 +76,13 @@ def handle_request():
 		#TODO: logging
 
 		pcap_file_args = {'output-dir': logging_directory.name, 'filename': f.name}
-		suricata_sc.send_command('pcap-file', pcap_file_args)
+		send_command(suricata_sock, 'pcap-file', pcap_file_args)
 
 		#Poll the socket until it's done processing packets
-		ret = suricata_sc.send_command('pcap-file-number')
+		ret = send_command(suricata_sock, 'pcap-file-number')
 		while ret['message'] > 0:
 			time.sleep(0.1)
-			ret = suricata_sc.send_command('pcap-file-number')
+			ret = send_command(suricata_sock, 'pcap-file-number')
 
 		try:
 			while True:
