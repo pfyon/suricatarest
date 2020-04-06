@@ -12,14 +12,9 @@
 vars:
   # more specific is better for alert accuracy and performance
   address-groups:
-    HOME_NET: "[192.168.0.0/16,10.0.0.0/8,172.16.0.0/12]"
-    #HOME_NET: "[192.168.0.0/16]"
-    #HOME_NET: "[10.0.0.0/8]"
-    #HOME_NET: "[172.16.0.0/12]"
-    #HOME_NET: "any"
+    HOME_NET: "any"
 
-    EXTERNAL_NET: "!$HOME_NET"
-    #EXTERNAL_NET: "any"
+    EXTERNAL_NET: "any"
 
     HTTP_SERVERS: "$HOME_NET"
     SMTP_SERVERS: "$HOME_NET"
@@ -60,7 +55,7 @@ stats:
   enabled: yes
   # The interval field (in seconds) controls at what interval
   # the loggers are invoked.
-  interval: 8
+  interval: 600
   # Add decode events as stats.
   #decoder-events: true
   # Decoder event prefix in stats. Has been 'decoder' before, but that leads
@@ -120,7 +115,7 @@ outputs:
       # to make the id less predictable.
 
       # enable/disable the community id feature.
-      community-id: false
+      community-id: true
       # Seed value for the ID output. Valid values are 0-65535.
       community-id-seed: 0
 
@@ -442,11 +437,11 @@ outputs:
   # prune" command which can delete files over a certain age.
   - file-store:
       version: 2
-      enabled: no
+      enabled: yes
 
       # Set the directory for the filestore. If the path is not
       # absolute will be be relative to the default-log-dir.
-      #dir: filestore
+      dir: files
 
       # Write out a fileinfo record for each occurrence of a
       # file. Disabled by default as each occurrence is already logged
@@ -454,11 +449,11 @@ outputs:
       #write-fileinfo: yes
 
       # Force storing of all files. Default: no.
-      #force-filestore: yes
+      force-filestore: yes
 
       # Override the global stream-depth for sessions in which we want
       # to perform file extraction. Set to 0 for unlimited.
-      #stream-depth: 0
+      stream-depth: 0
 
       # Uncomment the following variable to define how many files can
       # remain open for filestore by Suricata. Default value is 0 which
@@ -557,7 +552,7 @@ logging:
       enabled: yes
       # type: json
   - file:
-      enabled: yes
+      enabled: no
       level: info
       filename: suricata.log
       # type: json
@@ -695,7 +690,7 @@ pcap-file:
   #  - auto: Suricata uses a statistical approach to detect when
   #  checksum off-loading is used. (default)
   # Warning: 'checksum-validation' must be set to yes to have checksum tested
-  checksum-checks: auto
+  checksum-checks: no
 
 # See "Advanced Capture Options" below for more options, including NETMAP
 # and PF_RING.
@@ -726,7 +721,7 @@ app-layer:
 
       # Generate JA3 fingerprint from client hello. If not specified it
       # will be disabled by default, but enabled if rules require it.
-      #ja3-fingerprints: auto
+      ja3-fingerprints: yes
 
       # What to do when the encrypted communications start:
       # - default: keep tracking TLS session, check for protocol anomalies,
@@ -740,7 +735,7 @@ app-layer:
       #
       # For best performance, select 'bypass'.
       #
-      #encryption-handling: default
+      encryption-handling: full
 
     dcerpc:
       enabled: yes
@@ -775,7 +770,7 @@ app-layer:
         extract-urls: yes
         # Set to yes to compute the md5 of the mail body. You will then
         # be able to journalize it.
-        body-md5: no
+        body-md5: yes
       # Configure inspected-tracker for file_data keyword
       inspected-tracker:
         content-limit: 100000
@@ -842,8 +837,8 @@ app-layer:
 
            # Can be specified in kb, mb, gb.  Just a number indicates
            # it's in bytes.
-           request-body-limit: 100kb
-           response-body-limit: 100kb
+           request-body-limit: 100mb
+           response-body-limit: 1gb
 
            # inspection limits
            request-body-minimal-inspect-size: 32kb
@@ -852,7 +847,7 @@ app-layer:
            response-body-inspect-window: 16kb
 
            # response body decompression (0 disables)
-           response-body-decompress-layer-limit: 2
+           response-body-decompress-layer-limit: 4
 
            # auto will use http-body-inline mode in IPS mode, yes or no set it statically
            http-body-inline: auto
@@ -942,13 +937,13 @@ app-layer:
 
     # DNP3
     dnp3:
-      enabled: no
+      enabled: yes
       detection-ports:
         dp: 20000
 
     # SCADA EtherNet/IP and CIP protocol support
     enip:
-      enabled: no
+      enabled: yes
       detection-ports:
         dp: 44818
         sp: 44818
@@ -1018,7 +1013,7 @@ coredump:
 # If set to auto, the variable is internally switch to 'router' in IPS mode
 # and 'sniffer-only' in IDS mode.
 # This feature is currently only used by the reject* keywords.
-host-mode: auto
+host-mode: sniffer-only
 
 # Number of packets preallocated per thread. The default is 1024. A higher number 
 # will make sure each CPU will be more easily kept busy, but may negatively 
@@ -1497,7 +1492,7 @@ profiling:
 
     # Profiling can be disabled here, but it will still have a
     # performance impact if compiled in.
-    enabled: yes
+    enabled: no
     filename: rule_perf.log
     append: yes
 
@@ -1513,18 +1508,18 @@ profiling:
 
   # per keyword profiling
   keywords:
-    enabled: yes
+    enabled: no
     filename: keyword_perf.log
     append: yes
 
   prefilter:
-    enabled: yes
+    enabled: no
     filename: prefilter_perf.log
     append: yes
 
   # per rulegroup profiling
   rulegroups:
-    enabled: yes
+    enabled: no
     filename: rule_group_perf.log
     append: yes
 
@@ -1533,7 +1528,7 @@ profiling:
 
     # Profiling can be disabled here, but it will still have a
     # performance impact if compiled in.
-    enabled: yes
+    enabled: no
     filename: packet_stats.log
     append: yes
 
