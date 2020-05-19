@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
+import io
 import json
 import os
 import select
 import socket
 import subprocess
 import stat
+import tarfile
 import tempfile
 import time
-from flask import Flask, request
+from flask import Flask, request, send_file
 
 def send(sock, msg):
 	sock.send(bytes(json.dumps(msg) + '\n', 'iso-8859-1'))
@@ -74,9 +76,11 @@ while suricata_sock is None:
 		time.sleep(1.0)
 
 
-@application.route('/suricata', methods=['POST'])
+@application.route('/metadata', methods=['POST'])
+@application.route('/full', methods=['POST'])
 def handle_request():
 	messages = []
+	file_hashes = []
 	with tempfile.NamedTemporaryFile(dir=working_directory.name, suffix='.pcap') as f:
 		f.write(request.get_data())
 		#TODO: logging
@@ -95,6 +99,10 @@ def handle_request():
 				msg = receivemessage(read_sock)
 				messages.append(msg)
 
+				if 'event_type' in msg and msg['event_type'] == 'fileinfo':
+					#We need to keep track of extracted file paths so we can send them back later
+					file_hashes.append(msg['fileinfo']['sha256'])
+
 				if 'event_type' in msg and msg['event_type'] == 'stats':
 					#The "stats" message seems to be the last one
 					# (which makes sense as the information contained is only available after the pcap is done being processed)
@@ -102,6 +110,30 @@ def handle_request():
 		except socket.timeout:
 			#Never even received a stats message
 			pass
+
+		if request.path.startswith('/full'):
+			#Requested the files as well. We need to return a tar file containing all extracted files and a json file of metadata
+			tar_file_obj = io.BytesIO()
+			tar_file = tarfile.open(fileobj=tar_file_obj, mode='w')
+
+			for file_hash in file_hashes:
+				#Files are stored in a directory under <logging_directory>/files/<first 2 bytes of hash>/<hash>
+				file_path = os.path.join(logging_directory.name, 'files', file_hash[0:2], file_hash)
+				with open(file_path, 'rb') as file_path_obj:
+					tar_file.addfile(tar_file.gettarinfo(arcname=file_hash, fileobj=file_path_obj), file_path_obj)
+
+			eve_obj = io.BytesIO()
+			eve_obj.write(json.dumps(messages).encode('utf-8'))
+
+			eve_obj_tarinfo = tarfile.TarInfo(name="metadata.json")
+			eve_obj_tarinfo.size = eve_obj.tell()
+			eve_obj.seek(0)
+
+			tar_file.addfile(tarinfo=eve_obj_tarinfo, fileobj=eve_obj)
+			eve_obj.close()
+
+			tar_file_obj.seek(0)
+			return send_file(tar_file_obj, attachment_filename="suricata_output.tar")
 
 	return json.dumps(messages)
 
