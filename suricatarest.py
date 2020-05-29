@@ -39,86 +39,89 @@ def send_command(sock, command, args=None):
 	message['command'] = command
 
 	if args is not None:
-		message['arguments'] = args
+		#Suricata doesn't seem to have standardized on a naming convention for arguments yet
+		if not isinstance(args, dict):
+			message['arguments'] = {'variable': args}
+		else:
+			message['arguments'] = args
 
+	print("Sending {}".format(json.dumps(message)))
+	
 	return send(sock, message)
 
 application = Flask(__name__)
 
 working_directory = tempfile.TemporaryDirectory(dir="/dev/shm/")
-logging_directory = tempfile.TemporaryDirectory(dir=working_directory.name)
+os.mkdir(os.path.join(working_directory.name, "logs"))
 
-unix_sock_path = os.path.join(working_directory.name, "suricata.sock")
-read_sock_path = os.path.join(logging_directory.name, "eve.sock")
+command_sock_path = os.path.join(working_directory.name, "suricata.sock")
+output_sock_path = os.path.join(working_directory.name, "logs", "eve.sock")
 
-suricata_process = subprocess.Popen(['suricata', '-c', './config/suricata.yaml', '--unix-socket={}'.format(unix_sock_path)], stdout=subprocess.DEVNULL)
+suricata_process = subprocess.Popen(['suricata', '-c', './config/suricata.yaml', '--unix-socket={}'.format(command_sock_path)], stdout=subprocess.DEVNULL)
 
 #Create the socket that we'll read from and connect to it
-read_sock = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
-read_sock.bind(read_sock_path)
-read_sock.settimeout(10)
+output_sock = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
+output_sock.bind(output_sock_path)
+output_sock.settimeout(10)
 
 #Wait for the suricata process to start up
-suricata_sock = None
-while suricata_sock is None:
+command_sock = None
+while command_sock is None:
 	try:
-		if stat.S_ISSOCK(os.stat(unix_sock_path).st_mode):
-			suricata_sock = socket.socket(socket.AF_UNIX)
-			suricata_sock.connect(unix_sock_path)
-			suricata_sock.settimeout(10)
+		if stat.S_ISSOCK(os.stat(command_sock_path).st_mode):
+			command_sock = socket.socket(socket.AF_UNIX)
+			command_sock.connect(command_sock_path)
+			command_sock.settimeout(10)
 
 			#Apparently we have to send a version when we connect or suricata won't accept commands
-			send(suricata_sock, {"version": '0.2'})
+			send(command_sock, {"version": '0.2'})
 		else:
 			raise FileNotFoundError()
 	except FileNotFoundError:
-		print("Waiting for {} to exist".format(unix_sock_path))
+		print("Waiting for {} to exist".format(command_sock_path))
 		time.sleep(1.0)
 
-
-@application.route('/metadata', methods=['POST'])
-@application.route('/full', methods=['POST'])
-def handle_request():
+def process_pcap(pcap_file, get_files=False, work_dir=working_directory.name, command_sock=command_sock, output_sock=output_sock):
 	messages = []
-	file_hashes = []
-	with tempfile.NamedTemporaryFile(dir=working_directory.name, suffix='.pcap') as f:
-		f.write(request.get_data())
+	file_hashes = set()
+	with tempfile.NamedTemporaryFile(dir=work_dir, suffix='.pcap') as f:
+		f.write(pcap_file.read())
 		#TODO: logging
 
-		pcap_file_args = {'output-dir': logging_directory.name, 'filename': f.name}
-		send_command(suricata_sock, 'pcap-file', pcap_file_args)
+		pcap_file_args = {'output-dir': os.path.join(work_dir, "logs"), 'filename': f.name}
+		send_command(command_sock, 'pcap-file', pcap_file_args)
 
 		#Poll the socket until it's done processing packets
-		ret = send_command(suricata_sock, 'pcap-file-number')
+		ret = send_command(command_sock, 'pcap-file-number')
 		while ret['message'] > 0:
 			time.sleep(0.1)
-			ret = send_command(suricata_sock, 'pcap-file-number')
+			ret = send_command(command_sock, 'pcap-file-number')
 
 		try:
 			while True:
-				msg = receivemessage(read_sock)
+				msg = receivemessage(output_sock)
 				messages.append(msg)
 
-				if 'event_type' in msg and msg['event_type'] == 'fileinfo':
-					#We need to keep track of extracted file paths so we can send them back later
-					file_hashes.append(msg['fileinfo']['sha256'])
-
-				if 'event_type' in msg and msg['event_type'] == 'stats':
-					#The "stats" message seems to be the last one
-					# (which makes sense as the information contained is only available after the pcap is done being processed)
-					break
+				if 'event_type' in msg:
+					if msg['event_type'] == 'fileinfo':
+						#We need to keep track of extracted file paths so we can send them back later
+						file_hashes.add(msg['fileinfo']['sha256'])
+					elif msg['event_type'] == 'stats':
+						#The "stats" message seems to be the last one
+						# (which makes sense as the information contained is only available after the pcap is done being processed)
+						break
 		except socket.timeout:
 			#Never even received a stats message
 			pass
 
-		if request.path.startswith('/full'):
+		if get_files:
 			#Requested the files as well. We need to return a tar file containing all extracted files and a json file of metadata
 			tar_file_obj = io.BytesIO()
 			tar_file = tarfile.open(fileobj=tar_file_obj, mode='w')
 
 			for file_hash in file_hashes:
-				#Files are stored in a directory under <logging_directory>/files/<first 2 bytes of hash>/<hash>
-				file_path = os.path.join(logging_directory.name, 'files', file_hash[0:2], file_hash)
+				#Files are stored in a directory under <work_dir>/logs/files/<first 2 bytes of hash>/<hash>
+				file_path = os.path.join(work_dir, 'logs', 'files', file_hash[0:2], file_hash)
 				with open(file_path, 'rb') as file_path_obj:
 					tar_file.addfile(tar_file.gettarinfo(arcname=file_hash, fileobj=file_path_obj), file_path_obj)
 
@@ -133,9 +136,78 @@ def handle_request():
 			eve_obj.close()
 
 			tar_file_obj.seek(0)
-			return send_file(tar_file_obj, attachment_filename="suricata_output.tar")
 
-	return json.dumps(messages)
+			return tar_file_obj
+
+	return messages
+	
+
+@application.route('/metadata', methods=['POST'])
+def handle_metadata():
+	alerts_and_metadata = process_pcap(request.files.get('pcap').stream, get_files=False)
+	return json.dumps(alerts_and_metadata)
+
+@application.route('/full', methods=['POST'])
+def handle_full():
+	metadata_and_files_tar = process_pcap(request.files.get('pcap').stream, get_files=True)
+	return send_file(metadata_and_files_tar, attachment_filename="suricata_output.tar")
+
+@application.route('/test', methods=['POST'])
+def handle_test():
+	#We have to spawn a new suricata instance in order to change the rule file that is being used
+	# Which also means we have to set up a new logging directory and everything
+
+	tmp_work_dir = tempfile.TemporaryDirectory(dir="/dev/shm/")
+	os.mkdir(os.path.join(tmp_work_dir.name, "logs"))
+
+	tmp_cmd_sock_path = os.path.join(tmp_work_dir.name, "suricata.sock")
+	tmp_output_sock_path = os.path.join(tmp_work_dir.name, "logs", "eve.sock")
+
+	rule_file_path = os.path.join(tmp_work_dir.name, "local.rules")
+
+	print("Writing to {}".format(rule_file_path))
+	print("Writing {}".format(request.form.get('rules')))
+	with open(rule_file_path, 'w') as f:
+		f.write(request.form.get("rules"))
+
+	suricata_process = subprocess.Popen(['suricata', '-c', './config/suricata.yaml', '-S', rule_file_path, '--unix-socket={}'.format(tmp_cmd_sock_path)], stdout=subprocess.DEVNULL)
+
+	#Create the socket that we'll read from and connect to it
+	tmp_output_sock = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
+	tmp_output_sock.bind(tmp_output_sock_path)
+	tmp_output_sock.settimeout(10)
+
+	#Wait for the suricata process to start up
+	tmp_cmd_sock = None
+	while tmp_cmd_sock is None:
+		try:
+			if stat.S_ISSOCK(os.stat(tmp_cmd_sock_path).st_mode):
+				tmp_cmd_sock = socket.socket(socket.AF_UNIX)
+				tmp_cmd_sock.connect(tmp_cmd_sock_path)
+				tmp_cmd_sock.settimeout(10)
+	
+				#Apparently we have to send a version when we connect or suricata won't accept commands
+				send(tmp_cmd_sock, {"version": '0.2'})
+			else:
+				raise FileNotFoundError()
+		except FileNotFoundError:
+			print("Waiting for {} to exist".format(tmp_cmd_sock_path))
+			time.sleep(0.1)
+
+	alerts_and_metadata = process_pcap(request.files.get("pcap").stream, get_files=False, work_dir=tmp_work_dir.name, command_sock=tmp_cmd_sock, output_sock=tmp_output_sock)
+	send_command(tmp_cmd_sock, "shutdown")
+
+	tmp_work_dir.cleanup()
+
+	alerted = {}
+	for record in alerts_and_metadata:
+		if 'event_type' in record and record['event_type'] == 'alert' and 'alert' in record:
+			if record['alert']['signature'] not in alerted:
+				alerted[record['alert']['signature']] = 0
+
+			alerted[record['alert']['signature']] += 1
+
+	return json.dumps(alerted)
 
 if __name__ == '__main__':
 	application.run()
