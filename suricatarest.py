@@ -154,6 +154,7 @@ def handle_full():
 
 @application.route('/test', methods=['POST'])
 def handle_test():
+	#TODO: this doesn't have use a socket like the above. We could rewrite it to spawn suricata and read its output instead (see handle_validate())
 	#We have to spawn a new suricata instance in order to change the rule file that is being used
 	# Which also means we have to set up a new logging directory and everything
 
@@ -208,6 +209,32 @@ def handle_test():
 			alerted[record['alert']['signature']] += 1
 
 	return json.dumps(alerted)
+
+@application.route('/validate', methods=['POST'])
+def handle_validate():
+	rules = request.form.get("rules")
+
+	tmp_work_dir = tempfile.TemporaryDirectory(dir="/dev/shm/")
+	os.mkdir(os.path.join(tmp_work_dir.name, "logs"))
+
+	rule_file_path = os.path.join(tmp_work_dir.name, "local.rules")
+
+	with open(rule_file_path, 'w') as f:
+		f.write(rules)
+
+	suricata_process = subprocess.Popen(['suricata', '-c', './config/suricata.yaml', '-S', rule_file_path, '-T'], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+	stdoutdata, stderrdata = suricata_process.communicate()
+	error_buf = io.StringIO(stderrdata.decode("utf-8"))
+	errors = []
+
+	for line in error_buf:
+		line_json = json.loads(line)
+		if 'engine' in line_json and line_json['engine'].get('error') == 'SC_ERR_INVALID_SIGNATURE':
+			errors.append(line_json['engine']['message'])
+
+	return json.dumps(errors)
+	
 
 if __name__ == '__main__':
 	application.run()
