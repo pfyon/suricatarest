@@ -530,7 +530,7 @@ logging:
   # compiled with the --enable-debug configure option.
   #
   # This value is overridden by the SC_LOG_LEVEL env var.
-  default-log-level: notice
+  default-log-level: info
 
   # The default output format.  Optional parameter, should default to
   # something reasonable if not provided.  Can be overridden in an
@@ -550,7 +550,7 @@ logging:
   outputs:
   - console:
       enabled: yes
-      # type: json
+      type: json
   - file:
       enabled: no
       level: info
