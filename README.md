@@ -7,6 +7,7 @@ POST a pcap and/or set of rules to /full, /metadata, /test, or /validate. The pc
 ## Installation
 
 - Install suricata as detailed in https://suricata.readthedocs.io/en/latest/install.html
+-- Note: the default suricata config expects the rules used for /full and /metadata to be found at /var/lib/suricata/rules/suricata.rules .
 - Clone repository
 ```
 git clone https://github.com/pfyon/suricatarest.git
