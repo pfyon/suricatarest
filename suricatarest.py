@@ -155,6 +155,9 @@ def handle_full():
 @application.route('/test', methods=['POST'])
 def handle_test():
 	#TODO: this doesn't have use a socket like the above. We could rewrite it to spawn suricata and read its output instead (see handle_validate())
+	#TODO update: I tried this, but it's a bit difficult because of how much data suricata wants to pump through stdout.
+	#	It seems communicate() results in some messages being dropped due to volume or the socket being closed
+
 	#We have to spawn a new suricata instance in order to change the rule file that is being used
 	# Which also means we have to set up a new logging directory and everything
 
@@ -233,7 +236,10 @@ def handle_validate():
 		if 'engine' in line_json and line_json['engine'].get('error') == 'SC_ERR_INVALID_SIGNATURE':
 			errors.append(line_json['engine']['message'])
 
-	return json.dumps(errors)
+	if errors == []:
+		return json.dumps(errors)
+
+	return json.dumps(errors), 406 #HTTP 406 means NOT_ACCEPTABLE
 	
 
 if __name__ == '__main__':
