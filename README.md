@@ -42,7 +42,7 @@ curl -X POST --form pcap=@samples/anonymized.pcap 127.0.0.1:5000/full
 ```
 
 ### API /test
-Expects a pcap file and one or more suricata rule in the same format as in a .rules file.
+Expects a pcap file and one or more suricata rules in the same format as a .rules file.
 
 Returns a list of signatures that hit on the pcap file, and how many times each signature hit, as json.
 
@@ -58,7 +58,7 @@ curl -X POST --form pcap=@samples/anonymized.pcap --form 'rules="alert ip any an
 ```
 
 ### API /validate
-Expects one or more suricata rules in the same format as in a .rules file.
+Expects one or more suricata rules in the same format as a .rules file.
 
 Returns a list of errors while parsing the signature(s) as json. If there are any errors, an HTTP status code 406 NOT_ACCEPTABLE will be returned.
 
