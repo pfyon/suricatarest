@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import io
 import json
+import logging
 import os
 import select
 import socket
@@ -10,6 +11,8 @@ import tarfile
 import tempfile
 import time
 from flask import Flask, request, send_file
+
+log = logging.basicConfig(format="%(asctime)s - %(levelname)s - %(message)s", level=logging.DEBUG)
 
 def send(sock, msg):
 	sock.send(bytes(json.dumps(msg) + '\n', 'iso-8859-1'))
@@ -25,7 +28,7 @@ def receivemessage(sock):
 	ret = None
 	while True:
 		d = sock.recv(65536).decode('iso-8859-1')
-		print("Received {}".format(d))
+		logging.debug("Received {}".format(d))
 		data += d
 		#data += sock.recv(1024).decode('iso-8859-1')
 		if data.endswith('\n'):
@@ -45,7 +48,7 @@ def send_command(sock, command, args=None):
 		else:
 			message['arguments'] = args
 
-	print("Sending {}".format(json.dumps(message)))
+	logging.debug("Sending {}".format(json.dumps(message)))
 	
 	return send(sock, message)
 
@@ -78,7 +81,7 @@ while command_sock is None:
 		else:
 			raise FileNotFoundError()
 	except FileNotFoundError:
-		print("Waiting for {} to exist".format(command_sock_path))
+		logging.info("Waiting for {} to exist".format(command_sock_path))
 		time.sleep(1.0)
 
 def process_pcap(pcap_file, get_files=False, work_dir=working_directory.name, command_sock=command_sock, output_sock=output_sock):
@@ -167,14 +170,17 @@ def handle_test():
 	tmp_cmd_sock_path = os.path.join(tmp_work_dir.name, "suricata.sock")
 	tmp_output_sock_path = os.path.join(tmp_work_dir.name, "logs", "eve.sock")
 
-	rule_file_path = os.path.join(tmp_work_dir.name, "local.rules")
+	rule_file_path = os.path.join(tmp_work_dir.name, "suricata.rules")
 
-	print("Writing to {}".format(rule_file_path))
-	print("Writing {}".format(request.form.get('rules')))
 	with open(rule_file_path, 'w') as f:
 		f.write(request.form.get("rules"))
 
-	suricata_process = subprocess.Popen(['suricata', '-c', './config/suricata.yaml', '-S', rule_file_path, '--unix-socket={}'.format(tmp_cmd_sock_path)], stdout=subprocess.DEVNULL)
+	for lua in request.files.getlist("lua[]"):
+		with open(os.path.join(tmp_work_dir.name, os.path.basename(lua.filename)), 'w') as lua_file:
+			logging.debug("Writing to {}".format(os.path.join(tmp_work_dir.name, os.path.basename(lua.filename))))
+			lua_file.write(lua.read().decode("utf-8"))
+
+	suricata_process = subprocess.Popen(['suricata', '-c', './config/suricata.yaml', '--set', 'default-rule-path={}'.format(tmp_work_dir.name), '--unix-socket={}'.format(tmp_cmd_sock_path)], stdout=subprocess.DEVNULL)
 
 	#Create the socket that we'll read from and connect to it
 	tmp_output_sock = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
@@ -195,7 +201,7 @@ def handle_test():
 			else:
 				raise FileNotFoundError()
 		except FileNotFoundError:
-			print("Waiting for {} to exist".format(tmp_cmd_sock_path))
+			logging.debug("Waiting for {} to exist".format(tmp_cmd_sock_path))
 			time.sleep(0.1)
 
 	alerts_and_metadata = process_pcap(request.files.get("pcap").stream, get_files=False, work_dir=tmp_work_dir.name, command_sock=tmp_cmd_sock, output_sock=tmp_output_sock)
@@ -220,12 +226,17 @@ def handle_validate():
 	tmp_work_dir = tempfile.TemporaryDirectory(dir="/dev/shm/")
 	os.mkdir(os.path.join(tmp_work_dir.name, "logs"))
 
-	rule_file_path = os.path.join(tmp_work_dir.name, "local.rules")
+	rule_file_path = os.path.join(tmp_work_dir.name, "suricata.rules")
 
 	with open(rule_file_path, 'w') as f:
 		f.write(rules)
 
-	suricata_process = subprocess.Popen(['suricata', '-c', './config/suricata.yaml', '-S', rule_file_path, '-T'], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+	for lua in request.files.getlist("lua[]"):
+		with open(os.path.join(tmp_work_dir.name, os.path.basename(lua.filename)), 'w') as lua_file:
+			logging.debug("Writing to {}".format(os.path.join(tmp_work_dir.name, os.path.basename(lua.filename))))
+			lua_file.write(lua.read().decode("utf-8"))
+
+	suricata_process = subprocess.Popen(['suricata', '-c', './config/suricata.yaml', '--set', 'default-rule-path={}'.format(tmp_work_dir.name), '-T'], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
 	stdoutdata, stderrdata = suricata_process.communicate()
 	error_buf = io.StringIO(stderrdata.decode("utf-8"))
@@ -233,10 +244,10 @@ def handle_validate():
 
 	for line in error_buf:
 		line_json = json.loads(line)
-		if 'engine' in line_json and line_json['engine'].get('error') == 'SC_ERR_INVALID_SIGNATURE':
-			errors.append(line_json['engine']['message'])
+		if 'engine' in line_json and 'error' in line_json['engine']:
+			errors.append(line_json['engine'])
 
-	if errors == []:
+	if len(errors) == 0:
 		return json.dumps(errors)
 
 	return json.dumps(errors), 406 #HTTP 406 means NOT_ACCEPTABLE
