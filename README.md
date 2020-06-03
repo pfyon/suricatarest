@@ -1,9 +1,10 @@
 # suricatarest
+
 ##Suricata REST endpoint
 
 POST a pcap and/or set of rules to /full, /metadata, /test, or /validate. The pcap and/or rules will be processed by suricata.
 
-### API /metadata
+#### API /metadata
 Expects a pcap file.
 Returns all metadata (alerts and extracted fields) as json.
 
@@ -12,7 +13,7 @@ Example:
 curl -X POST --form pcap=@samples/anonymized.pcap 127.0.0.1:5000/metadata
 ```
 
-### API /full
+#### API /full
 Expects a pcap file
 Returns all the same metadata as /metadata, as well as extracted files from the pcap as a single tar file.
 
@@ -21,7 +22,7 @@ Example:
 curl -X POST --form pcap=@samples/anonymized.pcap 127.0.0.1:5000/full
 ```
 
-### API /test
+#### API /test
 Expects a pcap file and one or more suricata rule in the same format as in a .rules file.
 Returns a list of signatures that hit on the pcap file, and how many times each signature hit, as json.
 Note: Does not provide feedback if a signature failed validation. I suggest hitting /validate first if you're concerned about your signatures being invalid.
@@ -35,7 +36,7 @@ curl -X POST --form pcap=@samples/anonymized.pcap --form 'rules="alert ip any an
 {"test": 2}
 ```
 
-### API /validate
+#### API /validate
 Expects one or more suricata rules in the same format as in a .rules file.
 Returns a list of errors while parsing the signature(s) as json. If there are any errors, an HTTP status code 406 NOT_ACCEPTABLE will be returned.
 
