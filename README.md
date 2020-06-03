@@ -5,17 +5,17 @@
 POST a pcap and/or set of rules to /full, /metadata, /test, or /validate. The pcap and/or rules will be processed by suricata.
 
 ## Installation
- - Install suricata as detailed in https://suricata.readthedocs.io/en/latest/install.html
+- Install suricata as detailed in https://suricata.readthedocs.io/en/latest/install.html
   - Note: the default suricata config expects the rules used for /full and /metadata to be found at /var/lib/suricata/rules/suricata.rules .
- - Clone repository
+- Clone repository
 ```
 git clone https://github.com/pfyon/suricatarest.git
 ```
- - Install dependencies
+- Install dependencies
 ```
 pip install -r suricatarest/requirements.txt
 ```
- - Run out of the cloned source directory
+- Run out of the cloned source directory
 ```
 cd suricatarest/
 ./run.sh
