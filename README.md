@@ -65,6 +65,8 @@ Expects one or more suricata rules in the same format as a .rules file, and opti
 
 Returns a list of errors while parsing the signature(s) as json. If there are any errors, an HTTP status code 406 NOT_ACCEPTABLE will be returned.
 
+Currently, suricata does not seem to validate lua rule syntax.
+
 Example:
 ```
 curl -X POST --form 'rules="alert ip any any -> any any (msg:\"test\"; sid:notanumber; rev:1;)"' --form 'lua[]=@samples/1.lua' 127.0.0.1:5000/validate
