@@ -4,7 +4,7 @@
 
 POST a pcap and/or set of rules to /full, /metadata, /test, or /validate. The pcap and/or rules will be processed by suricata. Optionally, include lua files for /test and /validate.
 
-Note: Since suricata can run lua scripts and consist of arbitrary code, one should be careful how this service is exposed to untrusted users.
+Note: Since suricata can run lua scripts that consist of arbitrary code, one should be careful how this service is exposed to untrusted users.
 
 ## Installation
 - Install suricata as detailed in https://suricata.readthedocs.io/en/latest/install.html
