@@ -180,6 +180,7 @@ def handle_test():
 			logging.debug("Writing to {}".format(os.path.join(tmp_work_dir.name, os.path.basename(lua.filename))))
 			lua_file.write(lua.read().decode("utf-8"))
 
+	#suricata_process = subprocess.Popen(['suricata', '-c', './config/suricata.yaml', '--set', 'default-rule-path={}'.format(tmp_work_dir.name), '--unix-socket={}'.format(tmp_cmd_sock_path)])
 	suricata_process = subprocess.Popen(['suricata', '-c', './config/suricata.yaml', '--set', 'default-rule-path={}'.format(tmp_work_dir.name), '--unix-socket={}'.format(tmp_cmd_sock_path)], stdout=subprocess.DEVNULL)
 
 	#Create the socket that we'll read from and connect to it
